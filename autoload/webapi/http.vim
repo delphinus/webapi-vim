@@ -56,23 +56,23 @@ function! s:urlencode_char(c)
   return s
 endfunction
 
-function! http#decodeURI(str)
+function! webapi#http#decodeURI(str)
   let ret = a:str
   let ret = substitute(ret, '+', ' ', 'g')
-  let ret = substitute(ret, '%\(\x\x\)', '\=nr2char("0x".submatch(1))', 'g')
+  let ret = substitute(ret, '%\(\x\x\)', '\=printf("%c", str2nr(submatch(1), 16))', 'g')
   return ret
 endfunction
 
-function! http#escape(str)
+function! webapi#http#escape(str)
   return substitute(a:str, '[^a-zA-Z0-9_.~/-]', '\=s:urlencode_char(submatch(0))', 'g')
 endfunction
 
-function! http#encodeURI(items)
+function! webapi#http#encodeURI(items)
   let ret = ''
   if type(a:items) == 4
     for key in sort(keys(a:items))
       if strlen(ret) | let ret .= "&" | endif
-      let ret .= key . "=" . http#encodeURI(a:items[key])
+      let ret .= key . "=" . webapi#http#encodeURI(a:items[key])
     endfor
   elseif type(a:items) == 3
     for item in sort(a:items)
@@ -85,12 +85,12 @@ function! http#encodeURI(items)
   return ret
 endfunction
 
-function! http#encodeURIComponent(items)
+function! webapi#http#encodeURIComponent(items)
   let ret = ''
   if type(a:items) == 4
     for key in sort(keys(a:items))
       if strlen(ret) | let ret .= "&" | endif
-      let ret .= key . "=" . http#encodeURIComponent(a:items[key])
+      let ret .= key . "=" . webapi#http#encodeURIComponent(a:items[key])
     endfor
   elseif type(a:items) == 3
     for item in sort(a:items)
@@ -116,26 +116,40 @@ function! http#encodeURIComponent(items)
   return ret
 endfunction
 
-function! http#get(url, ...)
+function! webapi#http#get(url, ...)
   let getdata = a:0 > 0 ? a:000[0] : {}
   let headdata = a:0 > 1 ? a:000[1] : {}
   let url = a:url
-  let getdatastr = http#encodeURI(getdata)
+  let getdatastr = webapi#http#encodeURI(getdata)
   if strlen(getdatastr)
     let url .= "?" . getdatastr
   endif
-  let command = 'curl -L -s -k -i '
-  let quote = &shellxquote == '"' ?  "'" : '"'
-  for key in keys(headdata)
-    if has('win32')
-      let command .= " -H " . quote . key . ": " . substitute(headdata[key], '"', '"""', 'g') . quote
-    else
-      let command .= " -H " . quote . key . ": " . headdata[key] . quote
-	endif
-  endfor
-  let command .= " ".quote.url.quote
-  let res = system(command)
-  if res =~ '^HTTP/1.\d 3' || res =~ '^HTTP/1\.\d 200 Connection established'
+  if executable('curl')
+    let command = 'curl -L -s -k -i '
+    let quote = &shellxquote == '"' ?  "'" : '"'
+    for key in keys(headdata)
+      if has('win32')
+        let command .= " -H " . quote . key . ": " . substitute(headdata[key], '"', '"""', 'g') . quote
+      else
+        let command .= " -H " . quote . key . ": " . headdata[key] . quote
+	  endif
+    endfor
+    let command .= " ".quote.url.quote
+    let res = system(command)
+  elseif executable('wget')
+    let command = 'wget -O- --save-headers --server-response -q -L '
+    let quote = &shellxquote == '"' ?  "'" : '"'
+    for key in keys(headdata)
+      if has('win32')
+        let command .= " --header=" . quote . key . ": " . substitute(headdata[key], '"', '"""', 'g') . quote
+      else
+        let command .= " --header=" . quote . key . ": " . headdata[key] . quote
+	  endif
+    endfor
+    let command .= " ".quote.url.quote
+    let res = system(command)
+  endif
+  while res =~ '^HTTP/1.\d 3' || res =~ '^HTTP/1\.\d 200 Connection established' || res =~ '^HTTP/1\.\d 100 Continue'
     let pos = stridx(res, "\r\n\r\n")
     if pos != -1
       let res = res[pos+4:]
@@ -143,7 +157,7 @@ function! http#get(url, ...)
       let pos = stridx(res, "\n\n")
       let res = res[pos+2:]
     endif
-  endif
+  endwhile
   let pos = stridx(res, "\r\n\r\n")
   if pos != -1
     let content = res[pos+4:]
@@ -157,31 +171,48 @@ function! http#get(url, ...)
   \}
 endfunction
 
-function! http#post(url, ...)
+function! webapi#http#post(url, ...)
   let postdata = a:0 > 0 ? a:000[0] : {}
   let headdata = a:0 > 1 ? a:000[1] : {}
   let method = a:0 > 2 ? a:000[2] : "POST"
   let url = a:url
   if type(postdata) == 4
-    let postdatastr = http#encodeURI(postdata)
+    let postdatastr = webapi#http#encodeURI(postdata)
   else
     let postdatastr = postdata
   endif
-  let command = 'curl -L -s -k -i -X '.method
-  let quote = &shellxquote == '"' ?  "'" : '"'
-  for key in keys(headdata)
-    if has('win32')
-      let command .= " -H " . quote . key . ": " . substitute(headdata[key], '"', '"""', 'g') . quote
-    else
-      let command .= " -H " . quote . key . ": " . headdata[key] . quote
-	endif
-  endfor
-  let command .= " ".quote.url.quote
-  let file = tempname()
-  call writefile(split(postdatastr, "\n"), file, "b")
-  let res = system(command . " --data-binary @" . quote.file.quote)
+  if executable('curl')
+    let command = 'curl -L -s -k -i -X '.method
+    let quote = &shellxquote == '"' ?  "'" : '"'
+    for key in keys(headdata)
+      if has('win32')
+        let command .= " -H " . quote . key . ": " . substitute(headdata[key], '"', '"""', 'g') . quote
+      else
+        let command .= " -H " . quote . key . ": " . headdata[key] . quote
+	  endif
+    endfor
+    let command .= " ".quote.url.quote
+    let file = tempname()
+    call writefile(split(postdatastr, "\n"), file, "b")
+    let res = system(command . " --data-binary @" . quote.file.quote)
+  elseif executable('wget')
+    let command = 'wget -O- --save-headers --server-response -q -L '
+    let headdata['X-HTTP-Method-Override'] = method
+    let quote = &shellxquote == '"' ?  "'" : '"'
+    for key in keys(headdata)
+      if has('win32')
+        let command .= " --header=" . quote . key . ": " . substitute(headdata[key], '"', '"""', 'g') . quote
+      else
+        let command .= " --header=" . quote . key . ": " . headdata[key] . quote
+	  endif
+    endfor
+    let command .= " ".quote.url.quote
+    let file = tempname()
+    call writefile(split(postdatastr, "\n"), file, "b")
+    let res = system(command . " --post-data @" . quote.file.quote)
+  endif
   call delete(file)
-  if res =~ '^HTTP/1.\d 3' || res =~ '^HTTP/1\.\d 200 Connection established'
+  while res =~ '^HTTP/1.\d 3' || res =~ '^HTTP/1\.\d 200 Connection established' || res =~ '^HTTP/1\.\d 100 Continue'
     let pos = stridx(res, "\r\n\r\n")
     if pos != -1
       let res = res[pos+4:]
@@ -189,7 +220,7 @@ function! http#post(url, ...)
       let pos = stridx(res, "\n\n")
       let res = res[pos+2:]
     endif
-  endif
+  endwhile
   let pos = stridx(res, "\r\n\r\n")
   if pos != -1
     let content = res[pos+4:]
