@@ -7,6 +7,8 @@
 let s:save_cpo = &cpo
 set cpo&vim
 
+let s:system = function(get(g:, 'webapi#system_function', 'system'))
+
 function! s:nr2byte(nr)
   if a:nr < 0x80
     return nr2char(a:nr)
@@ -133,10 +135,10 @@ function! webapi#http#get(url, ...)
         let command .= " -H " . quote . key . ": " . substitute(headdata[key], '"', '"""', 'g') . quote
       else
         let command .= " -H " . quote . key . ": " . headdata[key] . quote
-	  endif
+      endif
     endfor
     let command .= " ".quote.url.quote
-    let res = system(command)
+    let res = s:system(command)
   elseif executable('wget')
     let command = printf('wget -O- --save-headers --server-response -q %s', follow ? '-L' : '')
     let quote = &shellxquote == '"' ?  "'" : '"'
@@ -145,10 +147,10 @@ function! webapi#http#get(url, ...)
         let command .= " --header=" . quote . key . ": " . substitute(headdata[key], '"', '"""', 'g') . quote
       else
         let command .= " --header=" . quote . key . ": " . headdata[key] . quote
-	  endif
+      endif
     endfor
     let command .= " ".quote.url.quote
-    let res = system(command)
+    let res = s:system(command)
   else
     throw "require `curl` or `wget` command"
   endif
@@ -196,11 +198,11 @@ function! webapi#http#post(url, ...)
         let command .= " -H " . quote . key . ": " . substitute(headdata[key], '"', '"""', 'g') . quote
       else
         let command .= " -H " . quote . key . ": " . headdata[key] . quote
-	  endif
+      endif
     endfor
     let command .= " ".quote.url.quote
     call writefile(split(postdatastr, "\n"), file, "b")
-    let res = system(command . " --data-binary @" . quote.file.quote)
+    let res = s:system(command . " --data-binary @" . quote.file.quote)
   elseif executable('wget')
     let command = printf('wget -O- --save-headers --server-response -q %s', follow ? '-L' : '')
     let headdata['X-HTTP-Method-Override'] = method
@@ -210,11 +212,11 @@ function! webapi#http#post(url, ...)
         let command .= " --header=" . quote . key . ": " . substitute(headdata[key], '"', '"""', 'g') . quote
       else
         let command .= " --header=" . quote . key . ": " . headdata[key] . quote
-	  endif
+      endif
     endfor
     let command .= " ".quote.url.quote
     call writefile(split(postdatastr, "\n"), file, "b")
-    let res = system(command . " --post-data @" . quote.file.quote)
+    let res = s:system(command . " --post-data @" . quote.file.quote)
   else
     throw "require `curl` or `wget` command"
   endif
